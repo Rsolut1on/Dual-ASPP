@@ -1,0 +1,19 @@
+
+dataset:
+  testis:
+    pth: 'testicular_data'
+
+fine_tunning: False
+Val: True
+model_name: ASPP_dual
+batch_size: 16
+max_iter: 500
+decay_rate: 0.5
+decay_steps: 16
+iGPU: [0,1,2,3]
+
+# optimization Adam or SGD
+method: SGD
+lr: 1.0e-3
+momentum: 0.9
+weight_decay: 2.0e-4
