@@ -52,6 +52,8 @@ To run this project, ensure you have the following installed:
 4. Run test:
     ```bash
       python test.py
+## Data Availability
+The datasets generated and analyzed during the current study are not publicly available due to privacy and ethical restrictions but are available from the corresponding author on reasonable request. Requests for data access should be directed to the corresponding author and may require approval from the relevant institutional ethics committee.
 
 ## Citation
 ```
