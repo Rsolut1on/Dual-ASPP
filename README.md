@@ -43,13 +43,13 @@ To run this project, ensure you have the following installed:
    ```bash
    git clone https://github.com/yourusername/testicular-torsion-diagnosis.git
    cd testicular-torsion-diagnosis
-2. Segmentation train
+2. Train the segmentation model:
     ```bash 
     python train_seg.py
-3. Classification train
+3. Train the classification model:
     ```bash
     python train.py
-4. Test
+4. Run test:
     ```bash
       python test.py
 
