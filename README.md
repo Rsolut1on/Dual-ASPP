@@ -1,4 +1,4 @@
-# Artificial Intelligence for Diagnosis of Testicular Torsion Based on Ultrasound Images
+# Artificial intelligence for differential diagnosis of testicular torsion and malignant tumors based on ultrasound images
 
 ## Overview
 
