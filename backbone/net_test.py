@@ -1,12 +1,13 @@
 import torch
 import torch.nn as nn
-import backbone
 import numpy as np
 import math
 import torch.nn.functional as F
 
-import backbone.DCnet
-import backbone.DCnet.resnet
+import DCnet
+import DCnet.resnet
+from resnet import *
+import resnet
 
 # import cv2
 PI = 3.141592653
@@ -184,8 +185,8 @@ class ASPP(nn.Module):
         self.blockb_1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3), nn.ReLU(True))
         # self.blockb_2 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU(True))
         # self.blockb_3 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1), nn.ReLU(True))
-        self.blockb_2 = backbone.BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
-        self.blockb_3 = backbone.BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
+        self.blockb_2 = BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
+        self.blockb_3 = BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(256, num_classes)
@@ -251,8 +252,8 @@ class ASPP_cATT(nn.Module):
         self.blockb_1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3), nn.ReLU(True))
         # self.blockb_2 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU(True))
         # self.blockb_3 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1), nn.ReLU(True))
-        self.blockb_2 = backbone.BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
-        self.blockb_3 = backbone.BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
+        self.blockb_2 = BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
+        self.blockb_3 = BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
 
         self.avgpool = nn.AdaptiveAvgPool2d((2, 2))
         self.bn = nn.BatchNorm1d(512)
@@ -331,8 +332,8 @@ class ASPP_SimCLR(nn.Module):
         self.blockb_1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3), nn.ReLU(True))
         # self.blockb_2 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), nn.ReLU(True))
         # self.blockb_3 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1), nn.ReLU(True))
-        self.blockb_2 = backbone.BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
-        self.blockb_3 = backbone.BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
+        self.blockb_2 = BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
+        self.blockb_3 = BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(256, num_classes)
@@ -375,13 +376,13 @@ class MultiResnet34(nn.Module):
         planes = 8
         self.size = size
 
-        self.scale1 = backbone.resnet.resnet34(pretrained=True)
+        self.scale1 = resnet.resnet34(pretrained=True)
         self.scale1.fc = nn.Linear(512 * 1, planes)
 
-        self.scale2 = backbone.resnet.resnet34(pretrained=True)
+        self.scale2 = resnet.resnet34(pretrained=True)
         self.scale2.fc = nn.Linear(512 * 1, planes)
 
-        self.scale3 = backbone.resnet.resnet34(pretrained=True)
+        self.scale3 = resnet.resnet34(pretrained=True)
         self.scale3.fc = nn.Linear(512 * 1, planes)
         self.fc = nn.Linear(planes * 3, 2)
         self.relu = nn.ReLU(inplace=True)
@@ -434,7 +435,7 @@ class MultiASPP(nn.Module):
 
 class ASPP_block(nn.Module):
     def __init__(self, in_channel):
-        super(ASPP_cATT_dual, self).__init__()
+        super(ASPP_block, self).__init__()
         # image process
         self.conv1 = V1Filters(out_channel=64)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -454,8 +455,8 @@ class ASPP_block(nn.Module):
             nn.BatchNorm2d(256),
         )
         self.blockb_1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3), nn.ReLU(True))
-        self.blockb_2 = backbone.BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
-        self.blockb_3 = backbone.BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
+        self.blockb_2 = BasicBlock(inplanes=64, planes=128, stride=1, downsample=downsample1)
+        self.blockb_3 = BasicBlock(inplanes=128, planes=256, stride=2, downsample=downsample2)
 
         self.avgpool = nn.AdaptiveAvgPool2d((2, 2))
         self.bn = nn.BatchNorm1d(512)
@@ -508,19 +509,38 @@ class ASPP_cATT_dual(nn.Module):
     def forward(self, *img_msk):
         input_c = img_msk[0]
         input_g = img_msk[1]
-        img_c = self.blocka(input_c)
-        img_g = self.blockb(input_g)
+        img_c = self.blocka(input_c[0], input_c[1]) # [2，1024]
+        img_g = self.blockb(input_g[0], input_g[1])
 
         x = self.fc(img_c + img_g)
 
         return x
     
 if __name__ == '__main__':
-    img_c = torch.randn(2, 3, 224, 224)
-    img_g = torch.randn(2, 3, 224, 224)
+    img_c = torch.randn(2, 1, 224, 224)
+    img_g = torch.randn(2, 1, 224, 224)
     msk_c = torch.randn(2, 1, 224, 224)
     msk_g = torch.randn(2, 1, 224, 224)
     model = ASPP_cATT_dual(2)
-    out = model([img_c, img_g], [msk_c, msk_g])
+    out = model([img_c, msk_c], [img_g, msk_g])
     print(model)
 
+'''
+1. 没有多头注意力（Multi-head Attention）
+传统的跨模态注意力（如 Transformer 中的注意力机制）通常使用多头注意力机制来增强模型对信息的表达能力。在多头注意力中，输入会被分割成多个子空间（多个头），每个头独立进行注意力计算，然后将它们的输出拼接并通过线性变换合并。而在这个实现中，我们使用了单一的线性变换来生成查询（Query）、键（Key）和值（Value），并没有进行多头注意力的处理。
+
+2. 没有复杂的权重共享机制
+在一些高级的注意力机制中，跨模态的注意力权重可能会在不同模态之间共享或通过更多层次的注意力计算进行交互。而这个实现只是在两个模态之间计算了简单的点积注意力权重，并没有采用这种复杂的共享策略。
+
+3. 注意力的计算较为基础
+Cross Attention 模块中的计算方式非常直观，只是计算了 Query 和 Key 的点积，结果通过 Softmax 转换为注意力权重。实际应用中，可能会对这个注意力权重进行更多的修正或使用一些非线性激活函数，或者加入其他层如位置编码（Positional Encoding）来改进模型的表现。
+
+4. 没有加权的相对位置编码
+高级的注意力机制通常会引入相对位置编码（relative positional encoding），来帮助模型更好地理解输入序列中各元素的相对位置关系。然而，简单的 Cross Attention 实现没有考虑这种编码，只是单纯依赖于特征间的点积关系。
+
+5. 简化的实现
+这个实现省略了许多复杂的设计，直接以输入特征的线性变换来表示查询、键和值，这是一种简化的处理方式。在更复杂的实现中，可能会通过多个卷积层或全连接层来提取更丰富的特征，或者引入更加复杂的注意力计算方式。
+
+总结：
+这个 Cross Attention 模块是一种基础版本的实现，强调计算的简洁性和直接性。它直接对两个模态的特征进行对齐、计算注意力权重并融合特征，并没有涉及多头注意力、位置编码等更复杂的技巧，因此被认为是“简单的”实现。在实际应用中，可以根据具体需求和数据特点进行优化和扩展。
+'''

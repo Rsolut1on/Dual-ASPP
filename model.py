@@ -4,7 +4,7 @@ import torchvision
 nn = torch.nn
 
 
-def encode(name='resnet50', num_classes=2, encoder=None):
+def encode(name='resnet50', num_classes=2, encoder=None, **kwargs):
     if name == 'resnet50':
         model = backbone.resnet50(pretrained=True)
         model.fc = nn.Linear(512 * 4, num_classes)
@@ -30,17 +30,32 @@ def encode(name='resnet50', num_classes=2, encoder=None):
     elif name == 'SegNet':
         model = backbone.SegNet(1, 1)
     elif name == 'DCnet':
-        model = backbone.DconnNet(num_classes)
+        # 
+        model = backbone.DconnNet(num_classes, mode='classification')
+        # 
+    elif name == 'SimCLR_ASPP':
+        model = backbone.SimCLR_ASPP(num_classes)
+    elif name == 'SimCLR_ASPP_Classifier':
+        model = backbone.SimCLRClassifier(encoder, num_classes)
     elif name == 'ASPP_dual':
-        model = backbone.EnhancedCrossModalFusion(num_classes, dim=256)
+        # 
+        ablation_variant = kwargs.get('ablation_variant', 'full')
+        model = backbone.EnhancedCrossModalFusion(
+            num_classes, dim=256, ablation_variant=ablation_variant
+        )
+        # 
     else:
         raise Exception('unknown model name, please check in resnet34, resnet50')
     return model
 
 
 def learning_rate_decay(optimizer, epoch, decay_rate=0.1, decay_steps=10):
+    # 
     for param_group in optimizer.param_groups:
-        param_group['lr'] = param_group['lr'] * (decay_rate ** (epoch // decay_steps))
+        if 'initial_lr' not in param_group:
+            param_group['initial_lr'] = param_group['lr']
+        param_group['lr'] = param_group['initial_lr'] * (decay_rate ** (epoch // decay_steps))
+    # 
 
 
 class loss(nn.Module):

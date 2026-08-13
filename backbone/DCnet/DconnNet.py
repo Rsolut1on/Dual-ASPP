@@ -21,9 +21,12 @@ up_kwargs = {'mode': 'bilinear', 'align_corners': True}
 
 
 class DconnNet(nn.Module):
-    def __init__(self,num_class=1):
-        super(DconnNet,self).__init__()
-        
+    # 
+    def __init__(self, num_class=1, mode='segmentation'):
+        super(DconnNet, self).__init__()
+        self.mode = mode
+        # 
+
         out_planes = num_class*8
         self.backbone =resnet34(pretrained=True)
         self.sde_module = SDE_module(512,512,out_planes)
@@ -59,12 +62,22 @@ class DconnNet(nn.Module):
                     # nn.BatchNorm2d(out_planes),
                     # nn.ReLU(True)
                 )
+        # 
+        if self.mode == 'classification':
+            self.cls_fc = nn.Linear(512, num_class)
+        # 
 
 
-    def forward(self, x):
+    # 
+    def forward(self, x, mask=None):
+    # 
         
         
         
+        # 
+        if x.size(1) == 1:
+            x = torch.cat([x, x, x], dim=1)
+        # 
         x = self.backbone.conv1(x)
         x = self.backbone.bn1(x)
         c1 = self.backbone.relu(x)#1/2  64
@@ -86,7 +99,10 @@ class DconnNet(nn.Module):
 
 
         c6 = self.gap(c5)
-        
+        # 
+        if self.mode == 'classification':
+            return self.cls_fc(c6.view(c6.size(0), -1))
+        # 
 
         r5 = self.sb1(c6,c5)
 

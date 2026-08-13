@@ -1,7 +1,7 @@
 import torch
 import yaml
 import os
-os.environ['CUDA_VISBLE_DEVICES'] = '3,4,5,6'
+
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 import dataio
 import model
@@ -12,11 +12,9 @@ import time
 from datetime import datetime
 from matplotlib import pyplot as plt
 import torch.nn.functional as F
-import torch.nn as nn
-from sklearn.model_selection import KFold
-from torch.utils.data import Subset
 
 transforms = dataio.transforms
+
 
 class Solver(object):
     def __init__(self, num_class=1, HW=[256, 256]):
@@ -78,119 +76,6 @@ class Solver(object):
 
         return density_, val_in_bin_, bin_wide_
 
-def save_val_res(model_name, hori_translation, verti_translation, images, output, mask, names, k, prediction=None):
-    if model_name == 'UNet' or model_name == 'SegNet' or model_name == 'UNet_2Plus':
-        prediction = torch.sigmoid(prediction).cpu().detach().numpy()
-    if model_name == 'DCnet':
-        batch, channel, H, W = images.shape
-        hori_show = hori_translation.repeat(batch, 1, 1, 1).cuda()
-        verti_show = verti_translation.repeat(batch, 1, 1, 1).cuda()
-        output_test = F.sigmoid(output)
-        class_pred = output_test.view([batch, -1, 8, H, W])  # (B, C, 8, H, W)
-        pred = torch.where(class_pred > 0.5, 1, 0)
-        try:
-            prediction, _ = backbone.Bilateral_voting(pred.float(), hori_show, verti_show)
-            prediction = prediction.cpu().detach().numpy()
-        except:
-            print('Erro shape:', pred.shape, hori_show.shape)
-            prediction = mask.cpu().detach().numpy()
-    tmk = mask.cpu().detach().numpy()
-    tim = images.cpu().detach().numpy()
-    temp = 0
-    if not os.path.exists(f'./val_check_img_K{k}/' ):
-        os.makedirs(f'./val_check_img_K{k}/')
-    for pre, mk, im in zip(prediction, tmk, tim):
-        fuse = np.hstack([im[0], mk[0], pre[0]])
-        plt.imshow(fuse, cmap='gray')
-        plt.savefig(f'./val_check_img_K{k}/'+ names[temp])
-        temp += 1
-
-def train_seg_KF(train_loader, val_loader, k):
-    # model
-    model_name = cfgs['model_name']  # UNet UNet_2Plus SegNet
-    net = model.encode(name=model_name, num_classes=NumClass).train()
-
-    # DC loss init 
-    hv = Solver(NumClass, (224, 224))
-    hori_translation, verti_translation = hv.get_hv()
-
-    # criterion = backbone.Cross_Entropy()
-    criterion = backbone.connect_loss(hori_translation, verti_translation, num_class=1)
-    # optimal
-    # optimizer = torch.optim.SGD(net.parameters(), lr=cfgs['lr'], momentum=cfgs['momentum'],
-    #                             weight_decay=cfgs['weight_decay'])
-    optimizer = torch.optim.Adam(net.parameters(), lr=cfgs['lr'], weight_decay=cfgs['weight_decay'])
-
-    # # multi_GPU
-    device = torch.device("cuda:" + str(cfgs['iGPU']) if torch.cuda.is_available() else "cpu")
-    net = nn.DataParallel(net)
-    net.to(device)
-
-    running_loss = 0.0
-    for epoch in range(cfgs['max_iter']):  # loop over the dataset multiple times
-        model.learning_rate_decay(optimizer, epoch, decay_rate=cfgs['decay_rate'], decay_steps=cfgs['decay_steps'])
-        for i, data in enumerate(train_loader):
-            start_time = time.time()
-
-            # forward + backward + optimize
-            images = data['images'].to(device)
-            mask = data['masks'].to(device)
-            labels = data['labels'].to(device)
-
-            # one channel 2 three channel
-            images = torch.cat((images, images, images), 1)
-
-            optimizer.zero_grad()
-            # CD net
-            if model_name == 'DCnet':
-                output, aux_out = net(images)
-                loss_main = criterion(output, mask)
-                loss_aux = criterion(aux_out, mask)
-                loss = loss_main + 0.3 * loss_aux
-            else:
-                prediction = net(images)
-                loss = criterion(prediction, mask)
-            loss.backward()
-            optimizer.step()
-
-            # print statistics
-            duration = time.time() - start_time
-            print_epoch = 10
-            running_loss += loss.item()
-            if i % print_epoch == 0:
-                sec_per_batch = float(duration)
-                format_str = '%s: step [%d, %5d], loss = %.3f (%.3f sec/batch)'
-                print(format_str % (datetime.now(), epoch, i, running_loss / print_epoch, sec_per_batch))
-                running_loss = 0.0
-
-        net.eval()
-        with torch.no_grad():
-            val_loss = 0.0
-            for i, data in enumerate(val_loader):
-                images = data['images'].to(device)
-                mask = data['masks'].to(device)
-
-                images = torch.cat((images, images, images), 1)
-                if model_name == 'DCnet':
-                    output, aux_out = net(images)
-                    loss_main = criterion(output, mask)
-                    loss_aux = criterion(aux_out, mask)
-                    loss = loss_main + 0.3 * loss_aux
-                else:
-                    prediction = net(images)
-                    loss = criterion(prediction, mask)
-                val_loss += loss.item()
-                if epoch == cfgs['max_iter'] - 1:
-                    save_val_res(model_name, hori_translation, verti_translation, images, output, mask, data['ckName'], k)
-            validation_loss = val_loss / len(val_loader)
-            print(f"Validation Loss: {validation_loss}")
-        
-        if epoch % 16 == 0 and epoch != 0:
-            if not os.path.exists(f'./checkpoint_K{k}/' ):
-                os.makedirs(f'./checkpoint_K{k}/')
-            torch.save(net.state_dict(),f'./checkpoint_K{k}/' 
-                       + cfgs['model_name'] + f'ep{epoch}_{validation_loss:.3f}.pth')
-            torch.save(net.state_dict(), f'./checkpoint_K{k}/' + cfgs['model_name'] + f'_{validation_loss:.3f}.pth')
 
 if __name__ == '__main__':
     NumClass = 1
@@ -206,17 +91,87 @@ if __name__ == '__main__':
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-
     dataset = dataio.testis(root=cfgs['dataset'], flag='seg_train', transform=trans)
-    kf = KFold(n_splits=5, shuffle=True, random_state=42) # 5-fold
-    indices = list(range(len(dataset)))
-    for fold, (train_idx, val_idx) in enumerate(kf.split(indices)):
-        print(f"Fold {fold + 1}:")
-        train_subset = Subset(dataset, train_idx)
-        val_subset = Subset(dataset, val_idx)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=cfgs['batch_size'], shuffle=True, num_workers=4)
 
-        train_loader = torch.utils.data.DataLoader(train_subset, batch_size=cfgs['batch_size'], shuffle=True, num_workers=4)
-        val_loader = torch.utils.data.DataLoader(val_subset, batch_size=cfgs['batch_size'], shuffle=True, num_workers=4)
+    # model
+    model_name = cfgs['model_name']  # UNet UNet_2Plus SegNet
+    net = model.encode(name=model_name, num_classes=NumClass).train()
 
-        train_seg_KF(train_loader, val_loader, fold + 1)
-                
+    # DC loss init 
+    hv = Solver(NumClass, (224, 224))
+    hori_translation, verti_translation = hv.get_hv()
+
+    # criterion = backbone.Cross_Entropy()
+    criterion = backbone.connect_loss(hori_translation, verti_translation, num_class=1)
+    # optimal
+    optimizer = torch.optim.SGD(net.parameters(), lr=cfgs['lr'], momentum=cfgs['momentum'],
+                                weight_decay=cfgs['weight_decay'])
+
+    # # multi_GPU
+    device = torch.device("cuda:" + str(cfgs['iGPU']) if torch.cuda.is_available() else "cpu")
+    net.to(device)
+
+    running_loss = 0.0
+    for epoch in range(cfgs['max_iter']):  # loop over the dataset multiple times
+        model.learning_rate_decay(optimizer, epoch, decay_rate=cfgs['decay_rate'], decay_steps=cfgs['decay_steps'])
+        for i, data in enumerate(dataloader):
+            start_time = time.time()
+
+            # forward + backward + optimize
+            images = data['images'].to(device)
+            mask = data['masks'].to(device)
+            labels = data['labels'].to(device)
+
+            # one channel 2 three channel
+            # images = torch.cat((images, images, images), 1)
+
+            optimizer.zero_grad()
+            # CD net
+            if model_name == 'DCnet':
+                output, aux_out = net(images)
+                loss_main = criterion(output, mask)
+                loss_aux = criterion(aux_out, mask)
+                loss = loss_main + 0.3 * loss_aux
+            else:
+                # prediction = net(images)
+                prediction = torch.rand(2, 1,224,224)
+                loss = criterion(prediction, mask)
+            loss.backward()
+            optimizer.step()
+
+            # print statistics
+            duration = time.time() - start_time
+            print_epoch = 10
+            running_loss += loss.item()
+            if i % print_epoch == 0:
+                sec_per_batch = float(duration)
+                format_str = '%s: step [%d, %5d], loss = %.3f (%.3f sec/batch)'
+                print(format_str % (datetime.now(), epoch, i, running_loss / print_epoch, sec_per_batch))
+                running_loss = 0.0
+            # if 1:
+            if epoch % 16 == 0 and i == 2 and epoch != 0:
+                if model_name == 'UNet' or model_name == 'SegNet' or model_name == 'UNet_2Plus':
+                    prediction = torch.sigmoid(prediction).cpu().detach().numpy()
+                if model_name == 'DCnet':
+                    batch, channel, H, W = images.shape
+                    hori_show = hori_translation.repeat(batch, 1, 1, 1).cuda()
+                    verti_show = verti_translation.repeat(batch, 1, 1, 1).cuda()
+                    output_test = F.sigmoid(output)
+                    class_pred = output_test.view([batch, -1, 8, H, W])  # (B, C, 8, H, W)
+                    pred = torch.where(class_pred > 0.5, 1, 0)
+                    try:
+                        prediction, _ = backbone.Bilateral_voting(pred.float(), hori_show, verti_show)
+                        prediction = prediction.cpu().detach().numpy()
+                    except:
+                        print('Erro shape:', pred.shape, hori_show.shape)
+                        prediction = mask.cpu().detach().numpy()
+                tmk = mask.cpu().detach().numpy()
+                tim = images.cpu().detach().numpy()
+                for pre, mk, im in zip(prediction, tmk, tim):
+                    fuse = np.hstack([im[0], mk[0], pre[0]])
+                    plt.imshow(fuse, cmap='gray')
+                    plt.show()
+                torch.save(net.state_dict(),
+                           './checkpoint/' + cfgs['dataset']['testis']['flg'] + cfgs['model_name'] + f'ep{epoch}.pth')
+    torch.save(net.state_dict(), './checkpoint/' + cfgs['dataset']['testis']['flg'] + cfgs['model_name'] + '.pth')
